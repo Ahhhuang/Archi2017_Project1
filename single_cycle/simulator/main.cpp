@@ -19,17 +19,13 @@ void toBigEndian(int *, int *);
 void reset();
 void implement();
 void error(int);
-
-void rType(int);
-void iType(int);
-void jType(int);
-
-FILE *f_sshot = fopen("snapshot_m.rpt", "w");
-FILE *f_error = fopen("error_dump_m.rpt", "w");
+int rType(int);
+int iType(int);
+int jType(int);
 
 int main()
 {
-    readLoadMemory("../hidden_testcase/error1/iimage.bin", "../hidden_testcase/error1/dimage.bin");
+    readLoadMemory("../testcase/iimage.bin", "../testcase/dimage.bin");
     implement();
     return 0;
 }
@@ -91,10 +87,10 @@ void reset() {
     for(int i=0; i<32; i++){
         regP[i] = reg[i] = 0;
     }
-    error(0); //initialize error.rpt
 }
 
 void implement() {
+    FILE *f_sshot = fopen("snapshot.rpt", "w");
     if(cycleCur == 0){
         fprintf(f_sshot, "cycle %d\n",cycleCur);
         //printf("cycle %d\n",cycleCur);
@@ -108,22 +104,24 @@ void implement() {
         //printf("$LO: 0x%0.8x\n",lo );
         fprintf(f_sshot, "PC: 0x%08X\n",pc);
         //printf("$PC: 0x%0.8x\n",pc );
-        fprintf(f_sshot, "\n\n");
+
     }
     while(1){
         cycleCur++;
         int instruction = iMemory[pc/4];
         int opcode = (instruction >> 26) & 0x3F;
+        //opcode = 0x01;
         pc = pc + 4;
-
-        if(opcode == 0x3F){
+        //printf("0x%0.8x -> opcode: %0.2x\n",instruction, opcode);
+        //system("pause");
+   	if(opcode == 0x3F){
           break;
         }else if(opcode == 0x00){
-          rType(instruction);
+          stop = rType(instruction);
         }else if(opcode == 0x02 || opcode == 0x03){
-          jType(instruction);
+          stop = jType(instruction);
         }else{
-          iType(instruction);
+          stop = iType(instruction);
         }
         if(stop)
           break;
@@ -139,22 +137,20 @@ void implement() {
         if(hi != hiP){
             fprintf(f_sshot, "$HI: 0x%08X\n",hi);
             //printf("$HI: 0x%0.8x\n",hi );
-            hiP = hi;
         }
         if(lo != loP){
             fprintf(f_sshot, "$LO: 0x%08X\n",lo);
             //printf("$LO: 0x%0.8x\n",lo );
-            loP = lo;
         }
+        hiP = hi;
+        loP = lo;
         fprintf(f_sshot, "PC: 0x%08X\n",pc);
         //printf("$PC: 0x%0.8x\n",pc );
-        fprintf(f_sshot, "\n\n");
     }
     fclose(f_sshot);
-    fclose(f_error);
 }
-
-void rType(int instr) {
+//printf("%0.8x = %0.8x + %0.8x",reg[rd], reg[rs], (-reg[rt]));        system("pause");
+int rType(int instr) {
     int rs = (instr >> 21) & 0x1F;
     int rt = (instr >> 16) & 0x1F;
     int rd = (instr >> 11) & 0x1F;
@@ -180,23 +176,21 @@ void rType(int instr) {
     }
 
     if(fu == 0x20){ // add
-        int ans = reg[rs] + reg[rt];
+        reg[rd] = reg[rs] + reg[rt];
         if(((reg[rs] >> 31) & 1) == ((reg[rt] >> 31) & 1)){
-          if(((ans >> 31) & 1) != ((reg[rt] >> 31) & 1)){
+          if(((reg[rd] >> 31) & 1) != ((reg[rt] >> 31) & 1)){
               error(2);
           }
         }
-        reg[rd] = ans;
     }else if(fu == 0x21){ // addu
         reg[rd] = reg[rs] + reg[rt];
     }else if(fu == 0x22){ // sub
-        int ans = reg[rs] - reg[rt];
+        reg[rd] = reg[rs] - reg[rt];
         if(((reg[rs] >> 31) & 1) != ((reg[rt] >> 31) & 1)){
-          if(((ans >> 31) & 1) == ((reg[rt] >> 31) & 1)){
+          if(((reg[rd] >> 31) & 1) == ((reg[rt] >> 31) & 1)){
               error(2);
           }
         }
-        reg[rd] = ans;
     }else if(fu == 0x24){ // and
         reg[rd] = reg[rs] & reg[rt];
     }else if(fu == 0x25){ // or
@@ -212,9 +206,7 @@ void rType(int instr) {
     }else if(fu == 0x00){ // sll
         reg[rd] = reg[rt] << sh;
     }else if(fu == 0x02){ // srl
-        if(sh == 0){
-            reg[rd] = reg[rt];
-        }else if(((reg[rt] >> 31) & 1) == 0){
+        if(((reg[rt] >> 31) & 1) == 0){
             reg[rd] = reg[rt] >> sh;
         }else{
             reg[rd] = (reg[rt] >> sh) - (0xFFFFFFFF << (32 - sh));
@@ -252,11 +244,13 @@ void rType(int instr) {
         reg[rd] = lo;
     }else{
        cout << "get a wrong rtype!" << endl;
+       return 0;
     }
     reg[0] = 0;
+    return 0;
 }
 
-void iType(int instr) {
+int iType(int instr) {
     int opcode = (instr >> 26) & 0x3f;
     int rs = (instr >> 21) & 0x1f;
     int rt = (instr >> 16) & 0x1f;
@@ -267,12 +261,12 @@ void iType(int instr) {
         if((im >> 15) == 1){
             im = im | 0xffff0000;
         }
-        int ans = reg[rs] + im;
+        reg[rt] = reg[rs] + im;
+        if(rt == 0) error(1);
         if(((im >> 31) & 1) == ((reg[rs] >> 31) & 1)){
-            if(((im >> 31) & 1) != ((ans >> 31) & 1))
+            if(((im >> 31) & 1) != ((reg[rt] >> 31) & 1))
                 error(2);
         }
-        reg[rt] = ans;
     }else if(opcode == 0x09){ // addiu
         if(rt == 0) error(1);
         if((im >> 15) == 1){
@@ -289,12 +283,14 @@ void iType(int instr) {
                 error(2);
         }
         //address overflow
-        if(memoryAddress < 0 || (memoryAddress + 4) > 1024){
+        if(memoryAddress < 0 || memoryAddress > 1024){
             error(4);
+            return 1;
         }
         //data misaligned
         if((memoryAddress % 4) != 0){
             error(5);
+            return 1;
         }
         reg[rt] = dMemory[memoryAddress/4];
     }else if(opcode == 0x21){ //lh
@@ -307,12 +303,14 @@ void iType(int instr) {
                 error(2);
         }
         //address overflow
-        if(memoryAddress < 0 || (memoryAddress + 2) > 1024){
+        if(memoryAddress < 0 || memoryAddress > 1024){
             error(4);
+            return 1;
         }
         //data misaligned
         if((memoryAddress % 2) != 0){
             error(5);
+            return 1;
         }
         //detect it's first-half or second-half
         if((memoryAddress % 4) == 0){
@@ -321,7 +319,7 @@ void iType(int instr) {
             if(((dMemory[memoryAddress/4] & 0x0000ffff) >> 15) == 1){
                 reg[rt] = ((dMemory[memoryAddress/4] & 0x0000ffff) | 0xffff0000);
             }else{
-                reg[rt] = (dMemory[memoryAddress/4] & 0x0000ffff);
+                reg[rt] = dMemory[memoryAddress/4] & 0x0000ffff;
             }
         }
     }else if(opcode == 0x25){ //lhu
@@ -334,12 +332,14 @@ void iType(int instr) {
                 error(2);
         }
         //address overflow
-        if(memoryAddress < 0 || (memoryAddress + 2) > 1024){
+        if(memoryAddress < 0 || memoryAddress > 1024){
             error(4);
+            return 1;
         }
         //data misaligned
         if((memoryAddress % 2) != 0){
             error(5);
+            return 1;
         }
         //detect it's first-half or second-half
         if((memoryAddress % 4) == 0){
@@ -359,6 +359,7 @@ void iType(int instr) {
         //address overflow
         if(memoryAddress < 0 || memoryAddress > 1024){
             error(4);
+            return 1;
         }
         //detect it's first-half or second-half or third...
         if((memoryAddress % 4) == 0){
@@ -383,17 +384,18 @@ void iType(int instr) {
         //address overflow
         if(memoryAddress < 0 || memoryAddress > 1024){
             error(4);
+            return 1;
         }
         //detect it's first-half or second-half or third...
         if((memoryAddress % 4) == 0){
-            reg[rt] = ((dMemory[memoryAddress/4] >> 24) & 0x000000ff);
-        }else if((memoryAddress % 4) == 1){ //signed
-            reg[rt] = ((dMemory[memoryAddress/4] >> 16) & 0x000000ff);
+            reg[rt] = (dMemory[memoryAddress/4] >> 24) & 0x000000ff;
+        }else if(memoryAddress % 4 == 1){ //signed
+            reg[rt] = (dMemory[memoryAddress/4] >> 16) & 0x000000ff;
         }
-        else if((memoryAddress % 4) == 2){
-            reg[rt] = ((dMemory[memoryAddress/4] >> 8) & 0x000000ff);
+        else if(memoryAddress % 4 == 2){
+            reg[rt] = (dMemory[memoryAddress/4] >> 8) & 0x000000ff;
         }else{
-            reg[rt] = (dMemory[memoryAddress/4] & 0x000000ff);
+            reg[rt] = dMemory[memoryAddress/4] & 0x000000ff;
         }
     }else if(opcode == 0x2B){ //sw
         if((im >> 15) == 1) im = im | 0xffff0000;
@@ -404,12 +406,14 @@ void iType(int instr) {
                 error(2);
         }
         //address overflow
-        if(memoryAddress < 0 || (memoryAddress + 4) > 1024){
+        if(memoryAddress < 0 || memoryAddress > 1024){
             error(4);
+            return 1;
         }
         //data misaligned
         if((memoryAddress % 4) != 0){
             error(5);
+            return 1;
         }
         dMemory[memoryAddress/4] = reg[rt];
     }else if(opcode == 0x29){ //sh
@@ -421,17 +425,19 @@ void iType(int instr) {
                 error(2);
         }
         //address overflow
-        if(memoryAddress < 0 || (memoryAddress + 2) > 1024){
+        if(memoryAddress < 0 || memoryAddress > 1024){
             error(4);
+            return 1;
         }
         //data misaligned
         if((memoryAddress % 2) != 0){
             error(5);
+            return 1;
         }
         if((memoryAddress % 4) == 0){
-            dMemory[memoryAddress/4] = (((reg[rt] & 0x0000ffff) << 16) | (dMemory[memoryAddress/4] & 0x0000ffff));
+            dMemory[memoryAddress/4] = ((reg[rt] & 0x0000ffff) << 16) | (dMemory[memoryAddress/4] & 0x0000ffff);
         }else{
-            dMemory[memoryAddress/4] = ((reg[rt] & 0x0000ffff) | (dMemory[memoryAddress/4] & 0xffff0000));
+            dMemory[memoryAddress/4] = (reg[rt] & 0x0000ffff) | (dMemory[memoryAddress/4] & 0xffff0000);
         }
     }else if(opcode == 0x28){ //sb
         if((im >> 15) == 1) im = im | 0xffff0000;
@@ -444,18 +450,18 @@ void iType(int instr) {
         //address overflow
         if(memoryAddress < 0 || memoryAddress > 1024){
             error(4);
+            return 1;
         }
         if((memoryAddress % 4) == 0){
-            dMemory[memoryAddress/4] = (((reg[rt] & 0x000000ff) << 24) | (dMemory[memoryAddress/4] & 0x00ffffff));
+            dMemory[memoryAddress/4] = (((reg[rt] & 0x000000ff) << 24) | (dMemory[memoryAddress/4] & 0xffffff00));
         }else if((memoryAddress % 4) == 1){
-            dMemory[memoryAddress/4] = (((reg[rt] & 0x000000ff) << 16) | (dMemory[memoryAddress/4] & 0xff00ffff));
+            dMemory[memoryAddress/4] = (((reg[rt] & 0x000000ff) << 16) | (dMemory[memoryAddress/4] & 0xffff00ff));
         }else if((memoryAddress % 4) == 2){
-            dMemory[memoryAddress/4] = (((reg[rt] & 0x000000ff) << 8) | (dMemory[memoryAddress/4] & 0xffff00ff));
+            dMemory[memoryAddress/4] = (((reg[rt] & 0x000000ff) << 8) | (dMemory[memoryAddress/4] & 0xff00ffff));
         }else{
-            dMemory[memoryAddress/4] = ((reg[rt] & 0x000000ff) | (dMemory[memoryAddress/4] & 0xffffff00));
+            dMemory[memoryAddress/4] = ((reg[rt] & 0x000000ff) | (dMemory[memoryAddress/4] & 0x00ffffff));
         }
     }else if(opcode == 0x0F){ //lui
-        if((im >> 15) == 1) im = im | 0xffff0000;
         if(rt == 0) error(1);
         reg[rt] = im << 16;
     }else if(opcode == 0x0C){ //andi
@@ -490,9 +496,10 @@ void iType(int instr) {
         cout << "get a wrong iType!" << endl;
     }
     reg[0] = 0;
+    return 0;
 }
 
-void jType(int instr) {
+int jType(int instr) {
     int opcode = (instr >> 26) & 0x3F;
     int address = instr & 0x3FFFFFF;
 
@@ -500,12 +507,12 @@ void jType(int instr) {
     if(opcode == 0x03) //jal
         reg[31] = pc;
     pc = (pc & 0xf0000000) | (address << 2);
+    return 0;
 }
 
 void error(int type) {
-    if(type == 0){
-        return;
-    }else if(type == 1){
+    FILE *f_error = fopen("error_dump.rpt", "w");
+    if(type == 1){
         fprintf(f_error, "In cycle %d: Write $0 Error\n", cycleCur);
         //printf("In cycle %d: Write $0 Error\n", cycleCur);
     }else if(type == 2){
@@ -517,12 +524,11 @@ void error(int type) {
     }else if(type == 4){
         fprintf(f_error, "In cycle %d: Address Overflow\n", cycleCur);
         //printf("In cycle %d: Address Overflow\n", cycleCur);
-        stop = 1;
     }else if(type == 5){
         fprintf(f_error, "In cycle %d: Misalignment Error\n", cycleCur);
         //printf("In cycle %d: Misalignment Error\n", cycleCur);
-        stop = 1;
     }else{
         cout << "wrong error type!" << endl;
     }
+    fclose(f_error);
 }
